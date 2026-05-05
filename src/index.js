@@ -83,3 +83,4 @@ if (process.argv[1] && process.argv[1].endsWith('index.js')) {
 
 export { preAIFilter, detectSetup, scoreOpportunity, shouldSendToAI } from './ai/PreAIFilter.js';
 export { buildTradingAIPrompt } from './ai/AIPromptBuilder.js';
+export { analyzeWithFallback } from './ai/OllamaAnalyzer.js';
