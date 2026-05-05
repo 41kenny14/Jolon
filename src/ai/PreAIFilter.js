@@ -40,7 +40,7 @@ export function detectSetup(
   }
 
   if (price <= recentLow * (1 - breakTolerance)) {
-    return { setup: 'breakdown', direction: 'SHORT', valid: true };
+    return { setup: 'breakout', direction: 'SHORT', valid: true };
   }
 
   const nearSupport = (levels.supports || []).some((s) => pctDistance(price, Number(s.level)) <= pullbackTolerance);

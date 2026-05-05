@@ -25,6 +25,9 @@ export class HyperLiquidClient {
     }
 
     const data = await res.json();
+    if (!Array.isArray(data)) {
+      throw new Error('HyperLiquid API payload inválido: se esperaba un array de velas.');
+    }
 
     return data.map((row) => ({
       timestamp: Number(row.t),
