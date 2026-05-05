@@ -80,3 +80,6 @@ if (process.argv[1] && process.argv[1].endsWith('index.js')) {
       process.exit(1);
     });
 }
+
+export { preAIFilter, detectSetup, scoreOpportunity, shouldSendToAI } from './ai/PreAIFilter.js';
+export { buildTradingAIPrompt } from './ai/AIPromptBuilder.js';
