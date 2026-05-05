@@ -96,6 +96,7 @@ export class TradingMainLoop {
     this.enableTelegramAlerts = enableTelegramAlerts;
     this.running = false;
     this.consecutiveErrors = 0;
+    this.lastCycleStartedAt = 0;
   }
 
   async fetchLatestTick() {
@@ -119,6 +120,7 @@ export class TradingMainLoop {
   }
 
   async runCycle() {
+    this.lastCycleStartedAt = Date.now();
     const tick = await this.fetchLatestTick();
     const market = this.module.onTick(tick, null);
     const snapshot = market[this.signalTimeframe] ?? market['5m'] ?? market['1m'];
@@ -170,16 +172,31 @@ export class TradingMainLoop {
       event: 'signal_cycle',
       input: {
         tick,
-        market,
+        market: this.#compactMarketForLogs(market),
         signalTimeframe: this.signalTimeframe,
         scoreResult,
-        aiInput,
+        aiInputLength: aiInput?.length ?? 0,
       },
       output: signal,
       metadata: {
         coin: this.coin,
+        cycleDurationMs: Date.now() - this.lastCycleStartedAt,
+        memoryMb: this.#memoryUsageMb(),
       },
     });
+
+    const bottlenecks = this.#detectBottlenecks({ aiInput, tick });
+    if (bottlenecks.length) {
+      await this.logger.log({
+        event: 'bottleneck_warning',
+        input: {
+          signalTimeframe: this.signalTimeframe,
+          tickTimestamp: tick.timestamp,
+        },
+        output: { bottlenecks },
+        metadata: { coin: this.coin },
+      });
+    }
 
     if (this.enableTelegramAlerts) {
       try {
@@ -231,6 +248,31 @@ export class TradingMainLoop {
 
   stop() {
     this.running = false;
+  }
+
+  #compactMarketForLogs(market = {}) {
+    const out = {};
+    for (const [tf, frame] of Object.entries(market)) {
+      out[tf] = {
+        close: frame?.candle?.close ?? null,
+        volume: frame?.candle?.volume ?? null,
+        pressure: frame?.orderBook?.pressure ?? 'neutral',
+      };
+    }
+    return out;
+  }
+
+  #memoryUsageMb() {
+    return Math.round((process.memoryUsage().rss / (1024 * 1024)) * 100) / 100;
+  }
+
+  #detectBottlenecks({ aiInput, tick }) {
+    const warnings = [];
+    if ((aiInput?.length ?? 0) > 16_000) warnings.push('prompt_excesivo');
+    if (this.consecutiveErrors >= 2) warnings.push('errores_consecutivos');
+    if (Date.now() - tick.timestamp > 120_000) warnings.push('tick_desactualizado');
+    if (this.#memoryUsageMb() > 800) warnings.push('ram_alta');
+    return warnings;
   }
 }
 

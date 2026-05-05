@@ -14,16 +14,20 @@ function extractJSON(text = '') {
 }
 
 async function analyzeWithModel({ model, prompt, keepAlive, ollamaUrl }) {
+  const MAX_PROMPT_CHARS = 18_000;
+  const trimmedPrompt = String(prompt).slice(0, MAX_PROMPT_CHARS);
   const response = await fetch(ollamaUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
-      prompt,
+      prompt: trimmedPrompt,
       stream: false,
       keep_alive: keepAlive,
       options: {
-        num_ctx: 4096,
+        num_ctx: 2048,
+        num_predict: 220,
+        temperature: 0.2,
       },
     }),
   });
@@ -60,13 +64,29 @@ export async function analyzeWithFallback(
     validationConfidenceThreshold = 80,
   } = {}
 ) {
-  // 1) Siempre primero: modelo liviano 7B para reducir RAM/picos de carga.
-  const primary = await analyzeWithModel({
-    model: primaryModel,
-    prompt,
-    keepAlive: primaryKeepAlive,
-    ollamaUrl,
-  });
+  let primary;
+  try {
+    primary = await analyzeWithModel({
+      model: primaryModel,
+      prompt,
+      keepAlive: primaryKeepAlive,
+      ollamaUrl,
+    });
+  } catch (error) {
+    return {
+      usedValidation: false,
+      selected: {
+        setup: 'sin oportunidad',
+        direction: 'NONE',
+        timeframe: 'N/A',
+        confidence: 0,
+        reason: `fallback local: ${error.message}`,
+      },
+      primary: null,
+      validation: null,
+      error: error.message,
+    };
+  }
 
   const confidence = Number(primary?.parsed?.confidence ?? 0);
   const shouldValidate = confidence > validationConfidenceThreshold;
@@ -82,12 +102,22 @@ export async function analyzeWithFallback(
   }
 
   // 3) 27B con keep_alive "0" para evitar retención de memoria y swapping.
-  const validation = await analyzeWithModel({
-    model: validationModel,
-    prompt,
-    keepAlive: validationKeepAlive,
-    ollamaUrl,
-  });
+  let validation;
+  try {
+    validation = await analyzeWithModel({
+      model: validationModel,
+      prompt,
+      keepAlive: validationKeepAlive,
+      ollamaUrl,
+    });
+  } catch {
+    return {
+      usedValidation: false,
+      selected: primary.parsed,
+      primary,
+      validation: null,
+    };
+  }
 
   return {
     usedValidation: true,
