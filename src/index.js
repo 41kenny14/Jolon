@@ -1,4 +1,3 @@
-import { appendFile } from 'node:fs/promises';
 import { HyperLiquidClient } from './data/HyperLiquidClient.js';
 import { MultiTimeframeStore } from './data/MultiTimeframeStore.js';
 import { SUPPORTED_TIMEFRAMES } from './data/timeframes.js';
@@ -9,6 +8,8 @@ import { LiquidityDetector } from './liquidity/LiquidityDetector.js';
 import { detectSetup, scoreOpportunity } from './ai/PreAIFilter.js';
 import { buildTradingAIPrompt } from './ai/AIPromptBuilder.js';
 import { analyzeWithFallback } from './ai/OllamaAnalyzer.js';
+import { SignalLogger } from './logging/SignalLogger.js';
+import { TelegramAlertService } from './alerts/TelegramAlertService.js';
 
 export class DataAndIndicatorsModule {
   constructor({ coin = 'BTC', capacityPerTf = 500 } = {}) {
@@ -81,6 +82,7 @@ export class TradingMainLoop {
     minIntervalMs = 30_000,
     maxIntervalMs = 60_000,
     logFile = './runtime-signals.log',
+    enableTelegramAlerts = true,
   } = {}) {
     this.coin = coin;
     this.signalTimeframe = signalTimeframe;
@@ -89,6 +91,9 @@ export class TradingMainLoop {
     this.maxIntervalMs = maxIntervalMs;
     this.logFile = logFile;
     this.module = new DataAndIndicatorsModule({ coin });
+    this.logger = new SignalLogger({ logFile });
+    this.alertService = new TelegramAlertService();
+    this.enableTelegramAlerts = enableTelegramAlerts;
     this.running = false;
     this.consecutiveErrors = 0;
   }
@@ -122,8 +127,9 @@ export class TradingMainLoop {
     const scoreResult = scoreOpportunity(snapshot, setup);
 
     let aiResult = null;
+    let aiInput = null;
     if (scoreResult.score >= this.minScore) {
-      const prompt = buildTradingAIPrompt({
+      aiInput = buildTradingAIPrompt({
         symbol: this.coin,
         timeframe: this.signalTimeframe,
         multiTimeframeContext: market,
@@ -132,7 +138,7 @@ export class TradingMainLoop {
         indicators: snapshot.indicators,
       });
 
-      aiResult = await analyzeWithFallback(prompt);
+      aiResult = await analyzeWithFallback(aiInput);
     }
 
     const selected = aiResult?.selected ?? {
@@ -160,7 +166,45 @@ export class TradingMainLoop {
       },
     };
 
-    await appendFile(this.logFile, `${JSON.stringify(signal)}\n`, 'utf8');
+    await this.logger.log({
+      event: 'signal_cycle',
+      input: {
+        tick,
+        market,
+        signalTimeframe: this.signalTimeframe,
+        scoreResult,
+        aiInput,
+      },
+      output: signal,
+      metadata: {
+        coin: this.coin,
+      },
+    });
+
+    if (this.enableTelegramAlerts) {
+      try {
+        await this.alertService.sendAlert({
+          symbol: this.coin,
+          setup: signal.signal.setup,
+          direction: signal.signal.direction,
+          timeframe: signal.timeframe,
+          confidence: signal.confidence,
+          reason: signal.signal.reason,
+        });
+      } catch (error) {
+        await this.logger.log({
+          event: 'telegram_alert_error',
+          input: {
+            symbol: this.coin,
+            timeframe: signal.timeframe,
+          },
+          output: {
+            message: error.message,
+          },
+        });
+      }
+    }
+
     return signal;
   }
 
