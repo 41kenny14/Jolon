@@ -11,6 +11,14 @@ export class IndicatorEngine {
   }
 
   update(candle) {
+    if (!candle || typeof candle.close !== 'number') {
+      return {
+        rsi: null,
+        ema20: this.ema20,
+        volume: null,
+      };
+    }
+
     const close = candle.close;
     const volume = candle.volume;
 

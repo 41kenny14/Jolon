@@ -11,6 +11,7 @@ export class TelegramAlertService {
   }
 
   formatAlert({ symbol, setup, direction, timeframe, confidence, reason }) {
+    const safeReason = this.#escapeMarkdown(reason);
     return [
       '🚨 *Nueva alerta de trading*',
       `Símbolo: *${symbol}*`,
@@ -18,8 +19,12 @@ export class TelegramAlertService {
       `Dirección: *${direction}*`,
       `Timeframe: *${timeframe}*`,
       `Confianza: *${confidence}*`,
-      `Razón: ${reason}`,
+      `Razón: ${safeReason}`,
     ].join('\n');
+  }
+
+  #escapeMarkdown(text = '') {
+    return String(text).replace(/([_*`\[])/g, '\\$1');
   }
 
   async sendAlert(alertPayload) {
