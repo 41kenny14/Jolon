@@ -1,5 +1,9 @@
 export class HyperLiquidClient {
   constructor({ baseUrl = 'https://api.hyperliquid.xyz/info' } = {}) {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'https:') {
+      throw new Error('baseUrl inválida: solo HTTPS permitido.');
+    }
     this.baseUrl = baseUrl;
   }
 
@@ -14,11 +18,14 @@ export class HyperLiquidClient {
       },
     };
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
     const res = await fetch(this.baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
 
     if (!res.ok) {
       throw new Error(`HyperLiquid API error ${res.status}`);

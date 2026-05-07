@@ -1,7 +1,8 @@
 const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434/api/generate';
+const OLLAMA_TIMEOUT_MS = 20_000;
 
 function extractJSON(text = '') {
-  const trimmed = String(text).trim();
+  const trimmed = String(text).trim().slice(0, 30_000);
   try {
     return JSON.parse(trimmed);
   } catch {
@@ -14,8 +15,14 @@ function extractJSON(text = '') {
 }
 
 async function analyzeWithModel({ model, prompt, keepAlive, ollamaUrl }) {
+  const parsedUrl = new URL(ollamaUrl);
+  if (!['127.0.0.1', 'localhost'].includes(parsedUrl.hostname)) {
+    throw new Error('ollamaUrl inválida: solo se permite localhost.');
+  }
   const MAX_PROMPT_CHARS = 18_000;
   const trimmedPrompt = String(prompt).slice(0, MAX_PROMPT_CHARS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   const response = await fetch(ollamaUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,7 +37,8 @@ async function analyzeWithModel({ model, prompt, keepAlive, ollamaUrl }) {
         temperature: 0.2,
       },
     }),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timer));
 
   if (!response.ok) {
     const errBody = await response.text();
